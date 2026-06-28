@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Man Landing</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #050b1a; font-family: sans-serif; }
+        canvas { display: block; background: linear-gradient(to bottom, #050b1a 0%, #1a2a6c 50%, #b21f1f 100%); }
+        #ui {
+            position: absolute; top: 10px; left: 10px; color: white;
+            text-shadow: 2px 2px 4px #000; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="fuelDisplay">Fuel: 100%</div>
+        <div id="msg">Land in the Fish Tank!</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const fuelDisplay = document.getElementById('fuelDisplay');
+        const msg = document.getElementById('msg');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Game Constants
+        const GRAVITY = 0.05;
+        const THRUST = 0.15;
+        const FUEL_CONSUMPTION = 0.5;
+
+        let gameActive = true;
+        let player = {
+            x: canvas.width / 2,
+            y: 50,
+            vx: 0,
+            vy: 0,
+            fuel: 100,
+            radius: 15
+        };
+
+        let birds = [];
+        let projectiles = []; // Poop
+        let obstacles = []; // Trees and rocks
+        let tank = { x: 0, y: 0, w: 80, h: 60 };
+
+        // Initialize Environment
+        function init() {
+            // Place tank randomly on ground
+            tank.x = Math.random() * (canvas.width - 200) + 100;
+            tank.y = canvas.height - 70;
+
+            // Add some rocks/trees
+            for(let i=0; i<5; i++) {
+                obstacles.push({
+                    x: Math.random() * canvas.width,
+                    y: canvas.height - 40,
+                    w: 40 + Math.random() * 40,
+                    h: 40,
+                    type: Math.random() > 0.5 ? 'rock' : 'tree'
+                });
+            }
+        }
+
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function spawnBird(isGiant = false) {
+            birds.push({
+                x: -50,
+                y: Math.random() * (canvas.height * 0.6),
+                speed: isGiant ? 2 : 3 + Math.random() * 3,
+                isGiant: isGiant,
+                lastPoop: 0
+            });
+        }
+
+        function update() {
+            if (!gameActive) return;
+
+            // Movement & Fuel
+            if (player.fuel > 0) {
+                if (keys['ArrowUp']) { player.vy -= THRUST; player.fuel -= FUEL_CONSUMPTION; }
+                if (keys['ArrowDown']) { player.vy += THRUST; player.fuel -= FUEL_CONSUMPTION; }
+                if (keys['ArrowLeft']) { player.vx -= THRUST; player.fuel -= FUEL_CONSUMPTION; }
+                if (keys['ArrowRight']) { player.vx += THRUST; player.fuel -= FUEL_CONSUMPTION; }
+            }
+            
+            player.vy += GRAVITY;
+            player.x += player.vx;
+            player.y += player.vy;
+            player.fuel = Math.max(0, player.fuel);
+            fuelDisplay.innerText = `Fuel: ${Math.floor(player.fuel)}%`;
+
+            // Bird Logic
+            if (Math.random() < 0.01) spawnBird(Math.random() < 0.1);
+
+            birds.forEach((bird, index) => {
+                bird.x += bird.speed;
+                // Pooping logic
+                if (Date.now() - bird.lastPoop > (bird.isGiant ? 2000 : 1500)) {
+                    projectiles.push({
+                        x: bird.x,
+                        y: bird.y,
+                        vy: 3,
+                        isGiant: bird.isGiant
+                    });
+                    bird.lastPoop = Date.now();
+                }
+                if (bird.x > canvas.width + 100) birds.splice(index, 1);
+            });
+
+            // Projectile (Poop) Logic
+            projectiles.forEach((p, index) => {
+                p.y += p.vy;
+                // Collision with player
+                let dx = p.x - player.x;
+                let dy = p.y - player.y;
+                let distance = Math.sqrt(dx*dx + dy*dy);
+                
+                if (distance < player.radius + (p.isGiant ? 20 : 5)) {
+                    if (p.isGiant) {
+                        endGame(false, "HIT BY GIANT POOP!");
+                    } else {
+                        player.vy += 2; // Knock down
+                        projectiles.splice(index, 1);
+                    }
+                }
+                if (p.y > canvas.height) projectiles.splice(index, 1);
+            });
+
+            // Collision with Ground/Tank
+            if (player.y + player.radius > canvas.height - 10) {
+                endGame(false, "CRASHED ON THE GROUND!");
+            }
+
+            // Tank Collision
+            if (player.x > tank.x && player.x < tank.x + tank.w && player.y + player.radius > tank.y) {
+                if (player.x > tank.x + 5 && player.x < tank.x + tank.w - 5) {
+                    endGame(true, "YOU LANDED IN THE TANK!");
+                } else {
+                    endGame(false, "HIT THE TANK EDGE!");
+                }
+            }
+
+            // Obstacle Collision
+            obstacles.forEach(o => {
+                if (player.x > o.x && player.x < o.x + o.w && player.y + player.radius > o.y) {
+                    endGame(false, "CRASHED INTO AN OBSTACLE!");
+                }
+            });
+        }
+
+        function endGame(win, text) {
+            gameActive = false;
+            msg.innerHTML = `<h1 style="color:${win ? '#00ff00' : '#ff4444'}">${text}</h1><button onclick="location.reload()">Try Again</button>`;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Ground
+            ctx.fillStyle = '#2d4c1e';
+            ctx.fillRect(0, canvas.height - 10, canvas.width, 10);
+
+            // Draw Obstacles
+            obstacles.forEach(o => {
+                ctx.fillStyle = o.type === 'rock' ? '#777' : '#228B22';
+                ctx.fillRect(o.x, o.y, o.w, o.h);
+            });
+
+            // Draw Tank
+            ctx.fillStyle = 'rgba(0, 191, 255, 0.6)';
+            ctx.fillRect(tank.x, tank.y, tank.w, tank.h);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(tank.x, tank.y, tank.w, tank.h);
+
+            // Draw Birds
+            birds.forEach(bird => {
+                ctx.fillStyle = bird.isGiant ? 'red' : 'white';
+                ctx.beginPath();
+                ctx.ellipse(bird.x, bird.y, bird.isGiant ? 30 : 10, bird.isGiant ? 20 : 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw Poop
+            projectiles.forEach(p => {
+                ctx.fillStyle = '#5C4033';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.isGiant ? 15 : 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw Player
+            ctx.fillStyle = '#C0C0C0';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fill();
+            // Jet fire
+            if (player.fuel > 0 && (keys['ArrowUp'] || keys['ArrowLeft'] || keys['ArrowRight'])) {
+                ctx.fillStyle = 'orange';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y + 15, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            requestAnimationFrame(() => {
+                update();
+                draw();
+            });
+        }
+
+        init();
+        draw();
+    </script>
+</body>
+</html>
